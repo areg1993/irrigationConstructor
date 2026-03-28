@@ -54,6 +54,16 @@
       padding-right: env(safe-area-inset-right);
       padding-bottom: env(safe-area-inset-bottom);
     }
+    body, .app {
+      width: 100%;
+      max-width: 100%;
+    }
+    .app, .topbar, .topbar-inner, .topbar-head, .toolbar-right, .controls-scroll, .controls,
+    .workspace, .sidebar, .panel-block, .canvas-panel, .canvas-shell, .map-card,
+    .map-toolbar, .map-api-row, .map-api-input, .map-gps-row, .map-gps-controls, .plot-toolbar {
+      min-width: 0;
+      max-width: 100%;
+    }
     .app { min-height: 100vh; height: auto; display: grid; grid-template-rows: auto auto; }
     .topbar { background: linear-gradient(180deg, #f6f2e8 0%, #ece6d9 100%); border-bottom: 1px solid var(--line-strong); box-shadow: var(--shadow); z-index: 5; position: relative; padding-top: env(safe-area-inset-top); }
     .topbar-inner {
@@ -70,7 +80,7 @@
     .brand h1 { margin: 0; font-size: 24px; line-height: 1.1; }
     .brand p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
     .toolbar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .compact-select, .compact-btn { height: var(--control-h); min-height: var(--touch-target); border-radius: var(--control-radius); border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); padding: 0 12px; font-weight: 600; font-size: var(--control-font); touch-action: manipulation; }
+    .compact-select, .compact-btn { height: var(--control-h); min-height: var(--touch-target); border-radius: var(--control-radius); border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); padding: 0 12px; font-weight: 600; font-size: var(--control-font); touch-action: manipulation; max-width: 100%; }
     .compact-btn { cursor: pointer; background: #fff; }
     .compact-btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
     button, .compact-btn, .leaflet-control a, .leaflet-draw-toolbar a {
@@ -108,7 +118,7 @@
     .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     label { display:block; font-size: var(--label-font); color: var(--muted); margin-bottom: 5px; }
-    input, select, textarea { width:100%; height: var(--control-h); min-height: var(--touch-target); padding: 0 11px; border-radius: var(--control-radius); border: 1px solid var(--line); background: #fff; color: var(--text); font-size: var(--control-font); touch-action: manipulation; }
+    input, select, textarea { width:100%; height: var(--control-h); min-height: var(--touch-target); padding: 0 11px; border-radius: var(--control-radius); border: 1px solid var(--line); background: #fff; color: var(--text); font-size: var(--control-font); touch-action: manipulation; max-width: 100%; }
     input:focus, select:focus, textarea:focus {
       outline: none;
       border-color: var(--accent);
@@ -262,8 +272,8 @@
     .mini-table tbody tr:hover { background: rgba(52, 92, 125, 0.08); }
     .alert { margin-top: 8px; border: 1px solid #e2b3b3; background: #fff0f0; color: #8b3030; padding: 10px 12px; border-radius: 12px; font-size: 13px; }
     details summary { cursor:pointer; font-weight:700; font-size:13px; }
-    .bottom-table { max-height: 240px; overflow:auto; border:1px solid var(--line); border-radius:12px; background:#fff; -webkit-overflow-scrolling: touch; }
-    .bottom-table table { width:100%; border-collapse: collapse; min-width: 100%; }
+    .bottom-table { width: 100%; max-width: 100%; max-height: 240px; overflow-x: auto; overflow-y: auto; border:1px solid var(--line); border-radius:12px; background:#fff; -webkit-overflow-scrolling: touch; }
+    .bottom-table table { width:max-content; border-collapse: collapse; min-width: 100%; }
     .bottom-table th, .bottom-table td { padding:8px 9px; border-bottom:1px solid #eee6d9; font-size:12px; text-align:left; }
     .bottom-table th { position:sticky; top:0; background:#faf8f4; }
     .bottom-table tbody tr { transition: background-color .12s ease; }
@@ -301,12 +311,12 @@
     .map-api-input .compact-btn { width: auto; }
     .map-gps-row { margin-bottom: 10px; }
     .map-gps-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
-    .map-gps-source { min-width: 220px; flex: 1 1 240px; }
+    .map-gps-source { min-width: 0; flex: 1 1 240px; }
     .map-gps-source .compact-select { width: 100%; }
-    .map-gps-controls .compact-btn { width: auto; white-space: nowrap; }
+    .map-gps-controls .compact-btn { width: auto; white-space: normal; }
     .map-status { font-size: 12px; color: var(--muted); margin: 8px 0 10px; }
     .plot-toolbar { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; margin-bottom: 8px; }
-    .plot-toolbar .compact-btn { width: auto; white-space: nowrap; }
+    .plot-toolbar .compact-btn { width: auto; white-space: normal; }
     .plot-notes-row { margin-bottom: 8px; }
     #fieldMap { width: 100%; height: 100%; min-height: 680px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #d6e0d1; flex: 1 1 auto; }
     .leaflet-container { font: inherit; }
@@ -438,74 +448,77 @@
     }
     @media (max-width: 1024px) and (orientation: landscape) {
       html, body {
-        height: 100dvh;
-        overflow: hidden;
+        min-height: 100%;
+        height: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
       }
       .app {
         min-height: 100dvh;
-        height: 100dvh;
-        grid-template-rows: auto 1fr;
+        height: auto;
+        grid-template-rows: auto auto;
       }
       .topbar {
-        max-height: 46dvh;
-        overflow: auto;
+        max-height: none;
+        overflow: visible;
       }
       .topbar-inner {
         width: calc(100% - 8px);
-        padding: 6px 8px;
-        gap: 6px;
+        padding: 8px;
+        gap: 8px;
       }
       .controls-scroll {
-        max-height: calc(46dvh - 18px);
-        overflow: auto;
-        padding-right: 6px;
+        max-height: none;
+        overflow: visible;
+        padding-right: 0;
+      }
+      .controls {
+        grid-template-columns: 1fr;
+        gap: 10px;
       }
       .workspace {
-        display: grid;
-        grid-template-columns: minmax(280px, 36vw) minmax(0, 1fr);
-        gap: 8px;
-        height: 100%;
-        min-height: 0;
-        padding: 6px;
-      }
-      .sidebar {
-        order: 0;
-        height: 100%;
-        overflow: auto;
-        padding: 8px 6px;
-        border-bottom: none;
-        border-right: 1px solid var(--line-strong);
-      }
-      .canvas-panel {
-        order: 0;
-        height: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        height: auto;
         min-height: 0;
         padding: 0;
       }
+      .sidebar {
+        order: 2;
+        height: auto;
+        overflow: visible;
+        padding: 8px 6px;
+        border-right: none;
+      }
+      .canvas-panel {
+        order: 1;
+        height: auto;
+        min-height: 0;
+        padding: 6px 0 0;
+      }
       .canvas-shell {
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        padding: 6px;
-        gap: 6px;
-        border-radius: 10px;
+        width: calc(100% - 8px);
+        height: auto;
+        margin: 0 auto;
+        padding: 8px;
+        gap: 8px;
+        border-radius: 12px;
       }
       .viz-card {
-        min-height: 0;
-        height: clamp(220px, 36dvh, 360px);
+        min-height: 300px;
+        height: clamp(300px, 52vh, 430px);
       }
       .map-card {
-        flex: 1 1 auto;
-        min-height: 0;
-        padding: 8px;
+        padding: 10px;
       }
       .map-status {
         margin: 6px 0;
         font-size: 14px;
       }
       #fieldMap {
-        min-height: 0;
-        height: 100%;
+        min-height: 280px;
+        height: min(58vh, 420px);
       }
       .map-toolbar,
       .map-gps-controls {
@@ -517,14 +530,8 @@
       .map-gps-controls .compact-btn,
       .map-api-row .compact-btn {
         width: 100%;
-        min-height: 52px;
+        min-height: 50px;
         font-size: 15px;
-      }
-      .leaflet-touch .leaflet-bar a,
-      .leaflet-touch .leaflet-draw-toolbar a {
-        width: 46px;
-        height: 46px;
-        line-height: 46px;
       }
     }
   </style>
