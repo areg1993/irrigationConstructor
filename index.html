@@ -598,6 +598,11 @@
       mapApiNetworkError: 'Сетевая ошибка или CORS (проверь доступность URL)',
       mapLocateSuccess: 'Координаты',
       mapLocateError: 'Не удалось определить местоположение',
+      mapLocateInsecureContext: 'Для геолокации откройте приложение по HTTPS или localhost',
+      mapLocatePermissionDenied: 'Доступ к геолокации запрещён. Разрешите доступ в настройках браузера',
+      mapLocatePositionUnavailable: 'GPS недоступен. Проверьте, включены ли геоданные',
+      mapLocateTimeout: 'Не удалось получить координаты вовремя. Попробуйте ещё раз на открытом месте',
+      mapLocateRetrying: 'Пробуем определить местоположение по сети...',
       mapElevationSource: 'Источник высот',
       mapElevationFlat: 'Ровный (без перепада)',
       mapElevationGps: 'GPS',
@@ -850,6 +855,11 @@
       mapApiNetworkError: 'Ցանցային սխալ կամ CORS (ստուգեք URL հասանելիությունը)',
       mapLocateSuccess: 'Կոորդինատներ',
       mapLocateError: 'Չհաջողվեց որոշել դիրքը',
+      mapLocateInsecureContext: 'Գեոլոկացիայի համար բացեք հավելվածը HTTPS կամ localhost հասցեով',
+      mapLocatePermissionDenied: 'Գեոլոկացիայի թույլտվությունը արգելված է։ Թույլատրեք այն դիտարկչի կարգավորումներում',
+      mapLocatePositionUnavailable: 'GPS հասանելի չէ։ Ստուգեք, որ տեղադրության ծառայությունները միացված են',
+      mapLocateTimeout: 'Կոորդինատները ժամանակին չստացվեցին։ Փորձեք կրկին բաց տարածքում',
+      mapLocateRetrying: 'Փորձում ենք որոշել դիրքը ցանցով...',
       mapElevationSource: 'Բարձրության աղբյուր',
       mapElevationFlat: 'Հարթ (առանց տարբերության)',
       mapElevationGps: 'GPS',
@@ -2056,7 +2066,31 @@
         focus(Number(lastPoint.lat), Number(lastPoint.lng));
         return;
       }
-      if (navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function') {
+      const canGeolocate = navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function';
+      if (!canGeolocate) {
+        updateMapStatus(contourMetrics, t('mapGpsGeolocationUnsupported'));
+        return;
+      }
+      const protocol = String(window.location?.protocol || '').toLowerCase();
+      const host = String(window.location?.hostname || '').toLowerCase();
+      const localHttpHost = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+      const secureOrigin = Boolean(window.isSecureContext) || (protocol === 'http:' && localHttpHost);
+      if (!secureOrigin) {
+        updateMapStatus(contourMetrics, t('mapLocateInsecureContext'));
+        return;
+      }
+      const locateErrorText = (err) => {
+        const code = Number(err?.code);
+        if (code === 1) return t('mapLocatePermissionDenied');
+        if (code === 2) return t('mapLocatePositionUnavailable');
+        if (code === 3) return t('mapLocateTimeout');
+        const raw = err && err.message ? String(err.message).trim() : '';
+        return raw ? `${t('mapLocateError')}: ${raw}` : t('mapLocateError');
+      };
+      const preciseRequest = { enableHighAccuracy: true, maximumAge: 0, timeout: 18000 };
+      const fallbackRequest = { enableHighAccuracy: false, maximumAge: 300000, timeout: 25000 };
+      let usedFallback = false;
+      const requestLocation = (options) => {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const lat = Number(position?.coords?.latitude);
@@ -2067,12 +2101,20 @@
             }
             focus(lat, lng);
           },
-          () => updateMapStatus(contourMetrics, t('mapLocateError')),
-          { enableHighAccuracy: true, maximumAge: 2000, timeout: 12000 }
+          (err) => {
+            const code = Number(err?.code);
+            if (!usedFallback && (code === 2 || code === 3)) {
+              usedFallback = true;
+              updateMapStatus(contourMetrics, t('mapLocateRetrying'));
+              requestLocation(fallbackRequest);
+              return;
+            }
+            updateMapStatus(contourMetrics, locateErrorText(err));
+          },
+          options
         );
-        return;
-      }
-      updateMapStatus(contourMetrics, t('mapLocateError'));
+      };
+      requestLocation(preciseRequest);
     }
 
     function fitMapToContour() {
