@@ -7,8 +7,24 @@
   <script>
     (function () {
       const requiredPassword = '199315';
+      const authKey = 'drip_auth_until_v1';
+      const authTtlMs = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      try {
+        const rawUntil = window.localStorage ? localStorage.getItem(authKey) : null;
+        const authUntil = Number(rawUntil);
+        if (Number.isFinite(authUntil) && authUntil > now) return;
+      } catch (_) {}
       const entered = window.prompt('Введите пароль');
-      if (entered === requiredPassword) return;
+      if (entered === requiredPassword) {
+        try {
+          if (window.localStorage) localStorage.setItem(authKey, String(now + authTtlMs));
+        } catch (_) {}
+        return;
+      }
+      try {
+        if (window.localStorage) localStorage.removeItem(authKey);
+      } catch (_) {}
       document.open();
       document.write('<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>403</title><style>html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;background:#fff;color:#111;text-align:center;padding:16px}h1{margin:0;font-size:22px;font-weight:700}</style></head><body><h1>Вы ввели неправильный пароль 403</h1></body></html>');
       document.close();
@@ -288,6 +304,18 @@
       height: auto;
       width: 100%;
     }
+    .map-card.is-fullscreen.is-mobile-fullscreen {
+      padding: 4px;
+      gap: 4px;
+    }
+    .map-card.is-fullscreen.is-mobile-fullscreen .map-toolbar,
+    .map-card.is-fullscreen.is-mobile-fullscreen .map-gps-row,
+    .map-card.is-fullscreen.is-mobile-fullscreen .map-api-row {
+      display: none !important;
+    }
+    .map-card.is-fullscreen.is-mobile-fullscreen #fieldMap {
+      min-height: 0;
+    }
     .viz-card {
       position: relative;
       border: 1px solid var(--line);
@@ -297,7 +325,9 @@
       min-height: 760px;
       height: 760px;
     }
-    #fieldStage { width: 100%; height: 100%; }
+    #fieldStage { width: 100%; height: 100%; touch-action: none; }
+    #fieldStage .konvajs-content,
+    #fieldStage canvas { touch-action: none; }
     .stage-tooltip { position: absolute; z-index: 8; min-width: 200px; max-width: 320px; padding: 10px 12px; border-radius: 12px; pointer-events: none; background: rgba(255,255,255,.96); border: 1px solid var(--line-strong); box-shadow: 0 12px 30px rgba(0,0,0,.12); font-size: 12px; line-height: 1.45; }
     .stage-tooltip .tt-title { font-size: 13px; font-weight: 800; margin-bottom: 4px; }
     .overlay-top { position:absolute; left:16px; right:16px; top:16px; display:flex; justify-content:space-between; gap:12px; z-index:4; pointer-events:none; }
@@ -503,6 +533,18 @@
       }
       #fieldMap { min-height: 440px; }
       .viz-card { min-height: 520px; height: 520px; }
+      .map-card.is-fullscreen {
+        padding: 4px;
+        gap: 4px;
+      }
+      .map-card.is-fullscreen .map-toolbar,
+      .map-card.is-fullscreen .map-gps-row,
+      .map-card.is-fullscreen .map-api-row {
+        display: none;
+      }
+      .map-card.is-fullscreen #fieldMap {
+        min-height: 0;
+      }
     }
     @media (max-width: 640px) {
       :root {
@@ -2275,6 +2317,9 @@
       const host = $('fieldStage');
       const width = Math.max(960, host.clientWidth || 960);
       const height = Math.max(680, host.clientHeight || 680);
+      host.style.touchAction = 'none';
+      host.style.webkitUserSelect = 'none';
+      host.style.userSelect = 'none';
 
       if (!stage || force) {
         if (stage && force) stage.destroy();
@@ -2283,6 +2328,11 @@
         hudLayer = new Konva.Layer({ listening: false });
         stage.add(sceneLayer);
         stage.add(hudLayer);
+        let pinchLastCenter = null;
+        let pinchLastDistance = 0;
+        let dragStoppedByPinch = false;
+        const pinchDistance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+        const pinchCenter = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
         stage.on('wheel', (e) => {
           e.evt.preventDefault();
@@ -2302,10 +2352,62 @@
           });
           stage.batchDraw();
         });
+        stage.on('touchmove', (e) => {
+          const evt = e.evt;
+          const touches = evt && evt.touches ? evt.touches : null;
+          if (!touches) return;
+          if (touches.length === 2) {
+            evt.preventDefault();
+            const p1 = { x: touches[0].clientX, y: touches[0].clientY };
+            const p2 = { x: touches[1].clientX, y: touches[1].clientY };
+            if (stage.isDragging()) {
+              dragStoppedByPinch = true;
+              stage.stopDrag();
+            }
+            const center = pinchCenter(p1, p2);
+            const distance = pinchDistance(p1, p2);
+            if (!pinchLastCenter) {
+              pinchLastCenter = center;
+              pinchLastDistance = distance;
+              return;
+            }
+            const pointTo = {
+              x: (center.x - stage.x()) / stage.scaleX(),
+              y: (center.y - stage.y()) / stage.scaleY()
+            };
+            const scaleFactor = distance / Math.max(pinchLastDistance, 1e-6);
+            const nextScale = clamp(stage.scaleX() * scaleFactor, 0.35, 6);
+            const dx = center.x - pinchLastCenter.x;
+            const dy = center.y - pinchLastCenter.y;
+            stage.scale({ x: nextScale, y: nextScale });
+            stage.position({
+              x: center.x - pointTo.x * nextScale + dx,
+              y: center.y - pointTo.y * nextScale + dy
+            });
+            stage.batchDraw();
+            pinchLastCenter = center;
+            pinchLastDistance = distance;
+            return;
+          }
+          if (touches.length === 1 && dragStoppedByPinch && !stage.isDragging()) {
+            stage.startDrag();
+            dragStoppedByPinch = false;
+          }
+          pinchLastCenter = null;
+          pinchLastDistance = 0;
+        });
+        stage.on('touchend touchcancel', () => {
+          pinchLastCenter = null;
+          pinchLastDistance = 0;
+        });
 
         stage.on('dragstart', () => { host.style.cursor = 'grabbing'; });
         stage.on('dragend', () => { host.style.cursor = 'grab'; });
         host.style.cursor = 'grab';
+        if (stage.content) {
+          stage.content.style.touchAction = 'none';
+          stage.content.style.webkitTapHighlightColor = 'transparent';
+        }
       } else {
         stage.size({ width, height });
       }
@@ -2389,6 +2491,11 @@
       mapFullscreen = !!nextValue;
       card.classList.toggle('is-fullscreen', mapFullscreen);
       document.body.classList.toggle('map-fullscreen-active', mapFullscreen);
+      const isTouchFullscreen = mapFullscreen && (
+        (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) ||
+        (('ontouchstart' in window) && window.innerWidth <= 1280)
+      );
+      card.classList.toggle('is-mobile-fullscreen', !!isTouchFullscreen);
       updateMapFullscreenButton();
       if (contourMap) {
         setTimeout(() => contourMap.invalidateSize(), 40);
@@ -3416,6 +3523,21 @@
         .map((pt) => L.latLng(Number(pt.lat), Number(pt.lng)));
     }
 
+    function polygonVerticesFromLayer(layer) {
+      if (!layer || typeof layer.getLatLngs !== 'function' || !window.L) return [];
+      const raw = layer.getLatLngs();
+      const ring = Array.isArray(raw?.[0]) ? raw[0] : raw;
+      if (!Array.isArray(ring)) return [];
+      return ring
+        .map((pt) => {
+          const lat = Number(pt?.lat);
+          const lng = Number(pt?.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+          return L.latLng(lat, lng);
+        })
+        .filter((pt) => !!pt);
+    }
+
     function clearPolygonDrawPreview() {
       if (mapDrawPreviewLayer) mapDrawPreviewLayer.clearLayers();
     }
@@ -3447,6 +3569,11 @@
       if (vertices.length >= 3) {
         addSegmentLabel(vertices[vertices.length - 1], vertices[0]);
       }
+    }
+
+    function renderContourSideLabels(layer = contourLayer) {
+      const vertices = polygonVerticesFromLayer(layer);
+      renderPolygonDrawPreview(vertices);
     }
 
     function buildContourModel(layer, elevationMeta = contourElevationMeta) {
@@ -4067,6 +4194,7 @@
       contourDrawLayer.clearLayers();
       contourDrawLayer.addLayer(layer);
       contourLayer = layer;
+      renderContourSideLabels(layer);
       contourElevationMeta = normalizeContourElevationMeta(elevationMeta);
       contourModel = buildContourModel(layer, contourElevationMeta);
       contourMetrics = measureContourLayer(layer, contourModel);
@@ -4284,10 +4412,10 @@
       });
       contourMap.on(L.Draw.Event.DRAWSTOP, () => {
         polygonDrawInProgress = false;
-        clearPolygonDrawPreview();
+        if (contourLayer) renderContourSideLabels(contourLayer);
+        else clearPolygonDrawPreview();
       });
       contourMap.on(L.Draw.Event.CREATED, (e) => {
-        clearPolygonDrawPreview();
         if (e.layerType === 'polyline') {
           if (mapRulerLayer) mapRulerLayer.clearLayers();
           const rulerLayer = e.layer;
@@ -4303,6 +4431,7 @@
           }
           return;
         }
+        clearPolygonDrawPreview();
         setContourLayer(e.layer, false);
       });
       contourMap.on(L.Draw.Event.EDITED, (e) => {
@@ -6005,7 +6134,7 @@
             g.add(new Konva.Text({ x: nx + 45, y: ny - 4, text: String(valves), fontSize: 10, fontStyle: 'bold', fill: '#175c7d' }));
           }
           wireTooltip(g, () => `<div class="tt-title">${t('nodeLabel')} U${i + 1}</div><div class="tt-row">${t('tooltipNodeValves')}: ${valves}</div><div class="tt-row">${t('tooltipNodeDesc')}</div>`);
-          g.on('click', () => setInspector(`${t('nodeLabel')} U${i + 1}`, t('nodeTypeName'), [[t('nodeValves'), String(valves)], [t('nodeType'), t('nodeTypeValue')], [t('nodeConnection'), t('nodeConnectionValue')]]));
+          g.on('click tap', () => setInspector(`${t('nodeLabel')} U${i + 1}`, t('nodeTypeName'), [[t('nodeValves'), String(valves)], [t('nodeType'), t('nodeTypeValue')], [t('nodeConnection'), t('nodeConnectionValue')]]));
           nodeLayer.add(g);
         }
       }
@@ -6175,6 +6304,10 @@
         rect.on('mouseenter', () => setZoneHighlight(z.index));
         rect.on('mouseleave', clearZoneHighlight);
         rect.on('click', () => inspectZone(z));
+        rect.on('tap', () => {
+          setZoneHighlight(z.index);
+          inspectZone(z);
+        });
       });
       document.querySelectorAll('#zoneTable tr.zone-table-row').forEach((row) => {
         const zoneIndex = Number(row.dataset.zoneIndex || 0);
