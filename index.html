@@ -2333,6 +2333,34 @@
         let dragStoppedByPinch = false;
         const pinchDistance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
         const pinchCenter = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+        const applyPinchTransform = (center, distance) => {
+          if (!Number.isFinite(distance) || distance <= 0) return;
+          if (!pinchLastCenter) {
+            pinchLastCenter = center;
+            pinchLastDistance = distance;
+            return;
+          }
+          const pointTo = {
+            x: (center.x - stage.x()) / stage.scaleX(),
+            y: (center.y - stage.y()) / stage.scaleY()
+          };
+          const scaleFactor = distance / Math.max(pinchLastDistance, 1e-6);
+          const nextScale = clamp(stage.scaleX() * scaleFactor, 0.35, 6);
+          const dx = center.x - pinchLastCenter.x;
+          const dy = center.y - pinchLastCenter.y;
+          stage.scale({ x: nextScale, y: nextScale });
+          stage.position({
+            x: center.x - pointTo.x * nextScale + dx,
+            y: center.y - pointTo.y * nextScale + dy
+          });
+          stage.batchDraw();
+          pinchLastCenter = center;
+          pinchLastDistance = distance;
+        };
+        const resetPinchState = () => {
+          pinchLastCenter = null;
+          pinchLastDistance = 0;
+        };
 
         stage.on('wheel', (e) => {
           e.evt.preventDefault();
@@ -2364,41 +2392,17 @@
               dragStoppedByPinch = true;
               stage.stopDrag();
             }
-            const center = pinchCenter(p1, p2);
-            const distance = pinchDistance(p1, p2);
-            if (!pinchLastCenter) {
-              pinchLastCenter = center;
-              pinchLastDistance = distance;
-              return;
-            }
-            const pointTo = {
-              x: (center.x - stage.x()) / stage.scaleX(),
-              y: (center.y - stage.y()) / stage.scaleY()
-            };
-            const scaleFactor = distance / Math.max(pinchLastDistance, 1e-6);
-            const nextScale = clamp(stage.scaleX() * scaleFactor, 0.35, 6);
-            const dx = center.x - pinchLastCenter.x;
-            const dy = center.y - pinchLastCenter.y;
-            stage.scale({ x: nextScale, y: nextScale });
-            stage.position({
-              x: center.x - pointTo.x * nextScale + dx,
-              y: center.y - pointTo.y * nextScale + dy
-            });
-            stage.batchDraw();
-            pinchLastCenter = center;
-            pinchLastDistance = distance;
+            applyPinchTransform(pinchCenter(p1, p2), pinchDistance(p1, p2));
             return;
           }
           if (touches.length === 1 && dragStoppedByPinch && !stage.isDragging()) {
             stage.startDrag();
             dragStoppedByPinch = false;
           }
-          pinchLastCenter = null;
-          pinchLastDistance = 0;
+          resetPinchState();
         });
         stage.on('touchend touchcancel', () => {
-          pinchLastCenter = null;
-          pinchLastDistance = 0;
+          resetPinchState();
         });
 
         stage.on('dragstart', () => { host.style.cursor = 'grabbing'; });
@@ -2407,6 +2411,31 @@
         if (stage.content) {
           stage.content.style.touchAction = 'none';
           stage.content.style.webkitTapHighlightColor = 'transparent';
+          const domContent = stage.content;
+          domContent.addEventListener('touchmove', (evt) => {
+            const touches = evt.touches;
+            if (!touches || touches.length !== 2) return;
+            evt.preventDefault();
+            if (stage.isDragging()) {
+              dragStoppedByPinch = true;
+              stage.stopDrag();
+            }
+            const rect = domContent.getBoundingClientRect();
+            const p1 = { x: touches[0].clientX - rect.left, y: touches[0].clientY - rect.top };
+            const p2 = { x: touches[1].clientX - rect.left, y: touches[1].clientY - rect.top };
+            applyPinchTransform(pinchCenter(p1, p2), pinchDistance(p1, p2));
+          }, { passive: false });
+          domContent.addEventListener('touchend', () => {
+            resetPinchState();
+            if (dragStoppedByPinch && !stage.isDragging()) {
+              stage.startDrag();
+              dragStoppedByPinch = false;
+            }
+          }, { passive: true });
+          domContent.addEventListener('touchcancel', () => {
+            resetPinchState();
+            dragStoppedByPinch = false;
+          }, { passive: true });
         }
       } else {
         stage.size({ width, height });
