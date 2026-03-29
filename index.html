@@ -54,6 +54,9 @@
       padding-right: env(safe-area-inset-right);
       padding-bottom: env(safe-area-inset-bottom);
     }
+    body.map-fullscreen-active {
+      overflow: hidden;
+    }
     body, .app {
       width: 100%;
       max-width: 100%;
@@ -83,7 +86,7 @@
     .compact-select, .compact-btn { height: var(--control-h); min-height: var(--touch-target); border-radius: var(--control-radius); border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); padding: 0 12px; font-weight: 600; font-size: var(--control-font); touch-action: manipulation; max-width: 100%; }
     .compact-btn { cursor: pointer; background: #fff; }
     .compact-btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
-    button, .compact-btn, .leaflet-control a, .leaflet-draw-toolbar a {
+    button, .compact-btn, .leaflet-control a, .leaflet-control button, .leaflet-draw-toolbar a {
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
@@ -232,6 +235,59 @@
       flex-direction: column;
       min-height: 0;
     }
+    .map-card.is-fullscreen {
+      position: fixed;
+      top: env(safe-area-inset-top);
+      right: env(safe-area-inset-right);
+      bottom: env(safe-area-inset-bottom);
+      left: env(safe-area-inset-left);
+      z-index: 9999;
+      margin: 0;
+      border-radius: 0;
+      border: 0;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+      background: #fff;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow: hidden;
+    }
+    .map-card.is-fullscreen h3,
+    .map-card.is-fullscreen .card-hint,
+    .map-card.is-fullscreen #mapStatus {
+      display: none;
+    }
+    .map-card.is-fullscreen .map-toolbar,
+    .map-card.is-fullscreen .map-gps-controls {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 6px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 2px;
+    }
+    .map-card.is-fullscreen .map-toolbar .compact-btn,
+    .map-card.is-fullscreen .map-gps-controls .compact-btn,
+    .map-card.is-fullscreen .map-api-row .compact-btn {
+      width: auto;
+      flex: 0 0 auto;
+      min-height: 40px;
+      height: 40px;
+      padding: 0 10px;
+      font-size: 14px;
+    }
+    .map-card.is-fullscreen .map-gps-row,
+    .map-card.is-fullscreen .map-api-row {
+      margin: 0;
+    }
+    .map-card.is-fullscreen #fieldMap {
+      flex: 1 1 auto;
+      min-height: 220px;
+      height: auto;
+      width: 100%;
+    }
     .viz-card {
       position: relative;
       border: 1px solid var(--line);
@@ -331,6 +387,37 @@
       padding: 2px 4px;
     }
     .leaflet-tooltip.map-ruler-label:before { display: none; }
+    .leaflet-control-map-fullscreen {
+      display: block;
+      width: 40px;
+      height: 40px;
+      border: 0;
+      margin: 0;
+      padding: 0;
+      border-radius: 0;
+      background: #fff;
+      color: #1f1a15;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-align: center;
+      line-height: 40px;
+      cursor: pointer;
+      touch-action: manipulation;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    .leaflet-touch .leaflet-control-map-fullscreen {
+      width: 44px;
+      height: 44px;
+      line-height: 44px;
+      font-size: 12px;
+    }
+    .leaflet-control-map-fullscreen.is-active {
+      background: var(--accent) !important;
+      color: #fff !important;
+      border-color: var(--accent) !important;
+    }
     @media (max-width: 1500px) {
       .controls { grid-template-columns: 1fr; }
     }
@@ -815,6 +902,8 @@
       hintMapContour: 'Нарисуйте полигон участка на карте или загрузите GeoJSON из API. Нажмите «Применить контур», чтобы заполнить геометрию.',
       mapUseContourBtn: 'Применить контур',
       mapClearBtn: 'Очистить контур',
+      mapFullscreenBtn: 'На весь экран',
+      mapExitFullscreenBtn: 'Свернуть карту',
       mapLoadApiBtn: 'Загрузить из API',
       mapApiUrl: 'GeoJSON API URL',
       mapApiUrlPrompt: 'Введите URL GeoJSON API',
@@ -1072,6 +1161,8 @@
       hintMapContour: 'Քարտեզի վրա գծեք դաշտի պոլիգոնը կամ բեռնեք GeoJSON-ը API-ից։ Սեղմեք «Կիրառել կոնտուրը»՝ երկրաչափությունը լրացնելու համար։',
       mapUseContourBtn: 'Կիրառել կոնտուրը',
       mapClearBtn: 'Մաքրել կոնտուրը',
+      mapFullscreenBtn: 'Ամբողջ էկրան',
+      mapExitFullscreenBtn: 'Փոքրացնել քարտեզը',
       mapLoadApiBtn: 'Բեռնել API-ից',
       mapApiUrl: 'GeoJSON API URL',
       mapApiUrlPrompt: 'Մուտքագրեք GeoJSON API URL-ը',
@@ -1490,6 +1581,7 @@
           layer.setTooltipContent(`${fmt(lengthM, 1)} ${t('unitM')}`);
         });
       }
+      updateMapFullscreenButton();
     }
     const t = (key) => (LANG[currentLang] && LANG[currentLang][key]) ? LANG[currentLang][key] : key;
     const $ = (id) => document.getElementById(id);
@@ -2166,6 +2258,8 @@
     let mapLabelsLayer = null;
     let mapBaseType = 'satellite';
     let contourApiUrl = '';
+    let mapFullscreen = false;
+    let mapFullscreenControlLink = null;
     const elevationApiUrl = 'https://api.open-elevation.com/api/v1/lookup';
     const gpsSurvey = {
       active: false,
@@ -2269,6 +2363,42 @@
       const streetBtn = $('mapTypeStreetBtn');
       if (satBtn) satBtn.classList.toggle('is-active', mapBaseType === 'satellite');
       if (streetBtn) streetBtn.classList.toggle('is-active', mapBaseType === 'street');
+    }
+
+    function updateMapFullscreenButton() {
+      const key = mapFullscreen ? 'mapExitFullscreenBtn' : 'mapFullscreenBtn';
+      const btn = $('mapFullscreenBtn');
+      if (btn) {
+        btn.dataset.i18n = key;
+        btn.textContent = t(key);
+        btn.classList.toggle('is-active', mapFullscreen);
+        btn.setAttribute('aria-pressed', mapFullscreen ? 'true' : 'false');
+      }
+      if (mapFullscreenControlLink) {
+        mapFullscreenControlLink.textContent = mapFullscreen ? 'X' : 'FS';
+        mapFullscreenControlLink.setAttribute('title', t(key));
+        mapFullscreenControlLink.setAttribute('aria-label', t(key));
+        mapFullscreenControlLink.setAttribute('aria-pressed', mapFullscreen ? 'true' : 'false');
+        mapFullscreenControlLink.classList.toggle('is-active', mapFullscreen);
+      }
+    }
+
+    function setMapFullscreen(nextValue) {
+      const card = $('mapCard');
+      if (!card) return;
+      mapFullscreen = !!nextValue;
+      card.classList.toggle('is-fullscreen', mapFullscreen);
+      document.body.classList.toggle('map-fullscreen-active', mapFullscreen);
+      updateMapFullscreenButton();
+      if (contourMap) {
+        setTimeout(() => contourMap.invalidateSize(), 40);
+        setTimeout(() => contourMap.invalidateSize(), 220);
+      }
+    }
+
+    function toggleMapFullscreen(forceValue = null) {
+      const next = typeof forceValue === 'boolean' ? forceValue : !mapFullscreen;
+      setMapFullscreen(next);
     }
 
     function setMapBase(type) {
@@ -4127,6 +4257,22 @@
           circlemarker: false
         }
       }));
+      const fullscreenControl = L.control({ position: 'topright' });
+      fullscreenControl.onAdd = () => {
+        const container = L.DomUtil.create('div', 'leaflet-bar');
+        const link = L.DomUtil.create('button', 'leaflet-control-map-fullscreen', container);
+        link.type = 'button';
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.disableScrollPropagation(container);
+        L.DomEvent.on(link, 'click', (evt) => {
+          L.DomEvent.stop(evt);
+          toggleMapFullscreen();
+        });
+        mapFullscreenControlLink = link;
+        updateMapFullscreenButton();
+        return container;
+      };
+      fullscreenControl.addTo(contourMap);
       contourMap.on(L.Draw.Event.DRAWSTART, (e) => {
         polygonDrawInProgress = e.layerType === 'polygon';
         if (polygonDrawInProgress) clearPolygonDrawPreview();
@@ -4483,6 +4629,7 @@
       $('resetBtn').addEventListener('click', () => {
         localStorage.removeItem(storageKey);
         currentPlotId = null;
+        toggleMapFullscreen(false);
         setDefaults(true);
         resetGpsSurvey(false);
         clearContour();
@@ -4535,7 +4682,11 @@
       ensureStage();
       ensureMap();
       updateMapBaseButtons();
+      updateMapFullscreenButton();
       updateGpsSurveyControls();
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && mapFullscreen) toggleMapFullscreen(false);
+      });
       window.addEventListener('resize', () => {
         ensureStage(true);
         if (lastRenderData) renderField(lastRenderData);
