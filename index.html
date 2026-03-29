@@ -174,6 +174,8 @@
     }
     .manual-points-actions {
       display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
       justify-content: flex-start;
       margin-top: 8px;
     }
@@ -331,6 +333,23 @@
     .stage-tooltip { position: absolute; z-index: 8; min-width: 200px; max-width: 320px; padding: 10px 12px; border-radius: 12px; pointer-events: none; background: rgba(255,255,255,.96); border: 1px solid var(--line-strong); box-shadow: 0 12px 30px rgba(0,0,0,.12); font-size: 12px; line-height: 1.45; }
     .stage-tooltip .tt-title { font-size: 13px; font-weight: 800; margin-bottom: 4px; }
     .overlay-top { position:absolute; left:16px; right:16px; top:16px; display:flex; justify-content:space-between; gap:12px; z-index:4; pointer-events:none; }
+    .viz-zoom-floating { position: absolute; right: 16px; top: 16px; z-index: 5; pointer-events: auto; display: flex; gap: 6px; }
+    .viz-zoom-btn {
+      width: 42px;
+      height: 42px;
+      min-height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      background: rgba(255,255,255,.94);
+      color: var(--text);
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+      box-shadow: 0 6px 14px rgba(0,0,0,.08);
+    }
+    .viz-zoom-btn:active { transform: translateY(1px); }
     .chips, .legend { display:flex; gap:8px; flex-wrap:wrap; }
     .chip, .legend-item { pointer-events:auto; background: rgba(255,255,255,.86); border: 1px solid var(--line); border-radius: 999px; padding: 8px 11px; font-size: 12px; box-shadow: 0 6px 14px rgba(0,0,0,.05); }
     .legend { position:absolute; left:16px; bottom:16px; z-index:4; }
@@ -533,6 +552,13 @@
       }
       #fieldMap { min-height: 440px; }
       .viz-card { min-height: 520px; height: 520px; }
+      .viz-zoom-floating { right: 8px; top: 8px; }
+      .viz-zoom-btn {
+        width: 44px;
+        height: 44px;
+        min-height: 44px;
+        font-size: 24px;
+      }
       .map-card.is-fullscreen {
         padding: 4px;
         gap: 4px;
@@ -712,6 +738,7 @@
                 <div id="manualElevationPointsList" class="manual-points-list"></div>
                 <div class="manual-points-actions">
                   <button id="manualPointAddBtn" type="button" class="compact-btn" data-i18n="manualPointAddBtn">Добавить точку</button>
+                  <button id="manualPointShareBtn" type="button" class="compact-btn">Копировать</button>
                 </div>
                 <textarea id="manualElevationInput" rows="4" hidden data-i18n-placeholder="manualElevationPlaceholder" placeholder="40.123,44.456,101.2"></textarea>
               </div>
@@ -890,6 +917,10 @@
             <div class="overlay-top">
               <div class="chips" id="vizToolbar"></div>
             </div>
+            <div class="viz-zoom-floating" aria-label="Zoom">
+              <button id="vizZoomInBtn" type="button" class="viz-zoom-btn" aria-label="Увеличить">+</button>
+              <button id="vizZoomOutBtn" type="button" class="viz-zoom-btn" aria-label="Уменьшить">-</button>
+            </div>
             <div class="legend" id="legend"></div>
           </div>
           <section class="map-card" id="mapCard">
@@ -979,6 +1010,11 @@
       manualPointLngPh: 'Долгота (lng)',
       manualPointElevPh: 'Высота, м (опц.)',
       manualPointRemoveTitle: 'Удалить точку',
+      manualPointShareBtnMobile: 'Поделиться',
+      manualPointShareBtnDesktop: 'Копировать',
+      manualPointNoData: 'Нет данных для отправки',
+      manualPointCopyError: 'Не удалось скопировать данные',
+      manualPointCopied: 'Данные скопированы в буфер обмена',
       mapGpsStartBtn: 'Старт GPS',
       mapGpsAddPointBtn: 'Добавить точку',
       mapGpsFinishBtn: 'Завершить контур',
@@ -1238,6 +1274,11 @@
       manualPointLngPh: 'Երկայնություն (lng)',
       manualPointElevPh: 'Բարձրություն, մ (ըստ ցանկության)',
       manualPointRemoveTitle: 'Ջնջել կետը',
+      manualPointShareBtnMobile: 'Կիսվել',
+      manualPointShareBtnDesktop: 'Պատճենել',
+      manualPointNoData: 'Ուղարկելու տվյալներ չկան',
+      manualPointCopyError: 'Չհաջողվեց պատճենել տվյալները',
+      manualPointCopied: 'Տվյալները պատճենվել են clipboard',
       mapGpsStartBtn: 'Սկսել GPS',
       mapGpsAddPointBtn: 'Ավելացնել կետ',
       mapGpsFinishBtn: 'Ավարտել կոնտուրը',
@@ -2303,6 +2344,7 @@
     let mapFullscreen = false;
     let mapFullscreenControlLink = null;
     const elevationApiUrl = 'https://api.open-elevation.com/api/v1/lookup';
+    const elevationFallbackApiUrl = 'https://api.open-meteo.com/v1/elevation';
     const gpsSurvey = {
       active: false,
       resolving: false,
@@ -2445,6 +2487,25 @@
 
     function resetView() {
       fitStageToContent();
+    }
+
+    function zoomStageByFactor(factor) {
+      ensureStage();
+      if (!stage || !Number.isFinite(factor) || factor <= 0) return;
+      const oldScale = stage.scaleX() || 1;
+      const newScale = clamp(oldScale * factor, 0.35, 6);
+      if (Math.abs(newScale - oldScale) < 1e-6) return;
+      const center = { x: stage.width() / 2, y: stage.height() / 2 };
+      const pointTo = {
+        x: (center.x - stage.x()) / oldScale,
+        y: (center.y - stage.y()) / oldScale
+      };
+      stage.scale({ x: newScale, y: newScale });
+      stage.position({
+        x: center.x - pointTo.x * newScale,
+        y: center.y - pointTo.y * newScale
+      });
+      stage.batchDraw();
     }
 
     function fitStageToContent() {
@@ -2740,6 +2801,7 @@
     function syncManualElevationEditorLabels() {
       const addBtn = $('manualPointAddBtn');
       if (addBtn) addBtn.textContent = t('manualPointAddBtn');
+      syncManualShareButtonLabel();
       document.querySelectorAll('.manual-point-row').forEach((row) => {
         const latInput = row.querySelector('input[data-manual-field="lat"]');
         const lngInput = row.querySelector('input[data-manual-field="lng"]');
@@ -2802,6 +2864,67 @@
         .filter(Boolean);
       target.value = lines.join('\n');
       return target.value;
+    }
+
+    function isManualSharePreferred() {
+      const coarsePointer = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+      const mobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(String(navigator.userAgent || ''));
+      return (coarsePointer || mobileUA) && typeof navigator.share === 'function';
+    }
+
+    function getManualShareButtonLabelKey() {
+      return isManualSharePreferred() ? 'manualPointShareBtnMobile' : 'manualPointShareBtnDesktop';
+    }
+
+    function syncManualShareButtonLabel() {
+      const btn = $('manualPointShareBtn');
+      if (!btn) return;
+      const key = getManualShareButtonLabelKey();
+      btn.textContent = t(key);
+      btn.setAttribute('aria-label', t(key));
+    }
+
+    async function copyTextToClipboard(text) {
+      const payload = String(text || '');
+      if (!payload) return;
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(payload);
+        return;
+      }
+      const holder = document.createElement('textarea');
+      holder.value = payload;
+      holder.setAttribute('readonly', '');
+      holder.style.position = 'fixed';
+      holder.style.left = '-9999px';
+      holder.style.opacity = '0';
+      document.body.appendChild(holder);
+      holder.focus();
+      holder.select();
+      const copied = document.execCommand('copy');
+      document.body.removeChild(holder);
+      if (!copied) throw new Error('copy_failed');
+    }
+
+    async function shareOrCopyManualElevationData() {
+      const text = String(syncManualElevationInputFromEditor() || '').trim();
+      if (!text) {
+        window.alert(t('manualPointNoData'));
+        return;
+      }
+      if (isManualSharePreferred()) {
+        try {
+          await navigator.share({ title: t('manualElevationInput'), text });
+          return;
+        } catch (err) {
+          if (err && err.name === 'AbortError') return;
+        }
+      }
+      try {
+        await copyTextToClipboard(text);
+        window.alert(t('manualPointCopied'));
+      } catch (_) {
+        window.alert(t('manualPointCopyError'));
+      }
     }
 
     function syncManualElevationEditorFromInput() {
@@ -3275,7 +3398,7 @@
       updateMapStatus(contourMetrics, `${t('mapGpsPointAdded')}: ${fmt0(gpsSurvey.points.length)}`);
     }
 
-    async function fetchElevationsFromApi(points) {
+    async function fetchElevationsFromOpenElevation(points) {
       const pts = Array.isArray(points) ? points : [];
       if (!pts.length) return [];
       const coords = pts
@@ -3302,6 +3425,72 @@
         return out;
       } finally {
         if (timer) clearTimeout(timer);
+      }
+    }
+
+    async function fetchElevationsFromOpenMeteo(points) {
+      const pts = Array.isArray(points) ? points : [];
+      if (!pts.length) return [];
+      const out = Array(pts.length).fill(null);
+      const chunkSize = 100;
+      for (let offset = 0; offset < pts.length; offset += chunkSize) {
+        const chunk = pts.slice(offset, offset + chunkSize);
+        const lat = chunk.map((pt) => Number(pt.lat).toFixed(7)).join(',');
+        const lng = chunk.map((pt) => Number(pt.lng).toFixed(7)).join(',');
+        const url = `${elevationFallbackApiUrl}?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}`;
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        let timer = null;
+        if (controller) timer = setTimeout(() => controller.abort(), 14000);
+        try {
+          const res = await fetch(url, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            signal: controller ? controller.signal : undefined
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const payload = await res.json();
+          if (!payload || !Array.isArray(payload.elevation)) throw new Error(t('mapApiElevationError'));
+          for (let i = 0; i < chunk.length; i++) {
+            const elev = Number(payload.elevation[i]);
+            out[offset + i] = Number.isFinite(elev) ? elev : null;
+          }
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      }
+      return out;
+    }
+
+    function isRetryableElevationError(err) {
+      const msg = String(err?.message || '').toLowerCase();
+      if (msg.includes('http 429')) return true;
+      if (msg.includes('http 5')) return true;
+      if (msg.includes('abort')) return true;
+      if (msg.includes('timeout')) return true;
+      if (msg.includes('failed to fetch')) return true;
+      if (msg.includes('network')) return true;
+      return false;
+    }
+
+    async function fetchElevationsFromApi(points) {
+      const pts = Array.isArray(points) ? points : [];
+      if (!pts.length) return [];
+      let primaryErr = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await fetchElevationsFromOpenElevation(pts);
+        } catch (err) {
+          primaryErr = err;
+          if (!isRetryableElevationError(err) || attempt >= 1) break;
+          await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+        }
+      }
+      try {
+        return await fetchElevationsFromOpenMeteo(pts);
+      } catch (fallbackErr) {
+        const primaryMsg = primaryErr?.message ? String(primaryErr.message) : t('mapApiElevationError');
+        const fallbackMsg = fallbackErr?.message ? String(fallbackErr.message) : t('mapApiElevationError');
+        throw new Error(`${primaryMsg}; fallback: ${fallbackMsg}`);
       }
     }
 
@@ -4756,6 +4945,9 @@
         saveState();
         calculate();
       });
+      $('manualPointShareBtn')?.addEventListener('click', () => {
+        void shareOrCopyManualElevationData();
+      });
       $('manualElevationPointsList')?.addEventListener('click', (e) => {
         const removeBtn = e.target.closest('button[data-manual-action="remove"]');
         if (!removeBtn) return;
@@ -4799,6 +4991,8 @@
         updateMapStatus();
       });
       $('fitBtn').addEventListener('click', () => { resetView(); calculate(); });
+      $('vizZoomInBtn')?.addEventListener('click', () => zoomStageByFactor(1.2));
+      $('vizZoomOutBtn')?.addEventListener('click', () => zoomStageByFactor(1 / 1.2));
       $('mapTypeSatelliteBtn')?.addEventListener('click', () => setMapBase('satellite'));
       $('mapTypeStreetBtn')?.addEventListener('click', () => setMapBase('street'));
       $('mapLocateBtn')?.addEventListener('click', locateOnMap);
@@ -4849,6 +5043,7 @@
         ensureStage(true);
         if (lastRenderData) renderField(lastRenderData);
         if (contourMap) contourMap.invalidateSize();
+        syncManualShareButtonLabel();
       });
     }
     function calculate() {
