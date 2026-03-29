@@ -2339,10 +2339,13 @@
     let mapStreetLayer = null;
     let mapSatelliteLayer = null;
     let mapLabelsLayer = null;
+    let mapDrawControl = null;
     let mapBaseType = 'satellite';
     let contourApiUrl = '';
     let mapFullscreen = false;
     let mapFullscreenControlLink = null;
+    let polygonDrawPanSuppressUntil = 0;
+    let polygonDrawMovedMap = false;
     const elevationApiUrl = 'https://api.open-elevation.com/api/v1/lookup';
     const elevationFallbackApiUrl = 'https://api.open-meteo.com/v1/elevation';
     const gpsSurvey = {
@@ -3741,6 +3744,25 @@
         .map((pt) => L.latLng(Number(pt.lat), Number(pt.lng)));
     }
 
+    function activePolygonDrawVertices() {
+      if (!window.L || !mapDrawControl) return [];
+      const toolbar = mapDrawControl._toolbars?.draw;
+      const handler = toolbar?._modes?.polygon?.handler;
+      const markers = Array.isArray(handler?._markers) ? handler._markers : [];
+      return markers
+        .map((marker) => (typeof marker?.getLatLng === 'function' ? marker.getLatLng() : null))
+        .filter((pt) => Number.isFinite(Number(pt?.lat)) && Number.isFinite(Number(pt?.lng)))
+        .map((pt) => L.latLng(Number(pt.lat), Number(pt.lng)));
+    }
+
+    function trimActivePolygonDrawVertex() {
+      const toolbar = mapDrawControl?._toolbars?.draw;
+      const handler = toolbar?._modes?.polygon?.handler;
+      if (!handler || typeof handler.deleteLastVertex !== 'function') return false;
+      handler.deleteLastVertex();
+      return true;
+    }
+
     function polygonVerticesFromLayer(layer) {
       if (!layer || typeof layer.getLatLngs !== 'function' || !window.L) return [];
       const raw = layer.getLatLngs();
@@ -4555,7 +4577,7 @@
       }
       const host = $('fieldMap');
       if (!host || !window.L || !L.Control || !L.Control.Draw) return null;
-      contourMap = L.map(host, { zoomControl: true, preferCanvas: true, maxZoom: 22 }).setView([40.1772, 44.5035], 13);
+      contourMap = L.map(host, { zoomControl: true, preferCanvas: true, maxZoom: 22, tapTolerance: 24 }).setView([40.1772, 44.5035], 13);
       mapStreetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxNativeZoom: 19,
         maxZoom: 22,
@@ -4582,7 +4604,7 @@
       gpsSurvey.layer = new L.FeatureGroup().addTo(contourMap);
       let polygonDrawInProgress = false;
       applyLeafletDrawLocale();
-      contourMap.addControl(new L.Control.Draw({
+      mapDrawControl = new L.Control.Draw({
         edit: { featureGroup: contourDrawLayer, edit: true, remove: true },
         draw: {
           polygon: {
@@ -4602,7 +4624,8 @@
           circle: false,
           circlemarker: false
         }
-      }));
+      });
+      contourMap.addControl(mapDrawControl);
       const fullscreenControl = L.control({ position: 'topright' });
       fullscreenControl.onAdd = () => {
         const container = L.DomUtil.create('div', 'leaflet-bar');
@@ -4619,17 +4642,36 @@
         return container;
       };
       fullscreenControl.addTo(contourMap);
+      contourMap.on('movestart', () => {
+        if (!polygonDrawInProgress) return;
+        polygonDrawMovedMap = true;
+      });
+      contourMap.on('moveend', () => {
+        if (!polygonDrawInProgress || !polygonDrawMovedMap) return;
+        polygonDrawMovedMap = false;
+        polygonDrawPanSuppressUntil = Date.now() + 280;
+      });
       contourMap.on(L.Draw.Event.DRAWSTART, (e) => {
         polygonDrawInProgress = e.layerType === 'polygon';
+        polygonDrawMovedMap = false;
+        polygonDrawPanSuppressUntil = 0;
         if (polygonDrawInProgress) clearPolygonDrawPreview();
       });
       contourMap.on(L.Draw.Event.DRAWVERTEX, (e) => {
         if (!polygonDrawInProgress) return;
+        if (Date.now() <= polygonDrawPanSuppressUntil) {
+          polygonDrawPanSuppressUntil = 0;
+          trimActivePolygonDrawVertex();
+          renderPolygonDrawPreview(activePolygonDrawVertices());
+          return;
+        }
         const vertices = drawVerticesFromEvent(e);
         renderPolygonDrawPreview(vertices);
       });
       contourMap.on(L.Draw.Event.DRAWSTOP, () => {
         polygonDrawInProgress = false;
+        polygonDrawMovedMap = false;
+        polygonDrawPanSuppressUntil = 0;
         if (contourLayer) renderContourSideLabels(contourLayer);
         else clearPolygonDrawPreview();
       });
